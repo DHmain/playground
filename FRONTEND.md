@@ -1,6 +1,6 @@
 # Frontend development and compatibility
 
-FOURWARD uses a Vite + strict TypeScript frontend and the existing Python game server. Gameplay renders with HTML/CSS and SVG; Canvas is not required for the current note density. Rendering is isolated so a later Canvas renderer can reuse the transport and timing code.
+FOURWARD uses a Vite + strict TypeScript frontend and the existing Python game server. The optional landing tutorial at `/demos/landing/index.html` uses a separate module script and per-server physics service through `/api/tutorial/landing/*`, preserving main-event state. Gameplay renders with HTML/CSS and SVG; Canvas is not required for the current note density. Rendering is isolated so a later Canvas renderer can reuse the transport and timing code.
 
 ## Play the packaged build
 
@@ -55,7 +55,7 @@ This type-checks the client, tests, and configuration, then replaces `dist/` wit
 
 No inline HTML event handlers or implicit window globals are needed. The DOM is patched instead of replacing the complete game subtree on each update. Animation uses `requestAnimationFrame`; polling remains at 180 ms. Server receipt time still determines scores. This migration does not implement network latency compensation or an audio-clock scheduler.
 
-Verified on 2026-11-09: strict TypeScript and production build passed; all 30 Python tests and all 3 Playwright tests passed in Chromium.
+Verified on 2026-11-09 after the tutorial and stage 2/3 changes: strict TypeScript and production build passed; all 33 main Python tests, 6 landing physics tests, and all 5 Playwright tests passed in Chromium.
 
 ## Verification commands
 
@@ -66,6 +66,6 @@ npm run check
 
 `check` builds the frontend, runs the Python suite, then runs Playwright. The browser suite starts isolated test-mode and normal-mode servers on ports 8765 and 8766. Those ports must be free. Chromium system dependencies may be required on a clean Linux machine.
 
-The browser journey checks join, stage selection, keyboard and pointer input dispatch, relay regeneration, note-node preservation, pause/resume, AI count and host-first relay turn, refresh, mobile-width layout, lobby/reset/team management, sound toggle, invalid host PIN, connection recovery, and final-results rendering. Final-results rendering uses a fixture based on live state; complete game/scoring behavior is exercised by the Python suite.
+The browser journey checks join, stage selection, keyboard and pointer input dispatch, continuous relay spawn/variable speed, note-node preservation, pause/resume, AI count and fixed relay ownership, refresh, mobile-width layout, lobby/reset/team management, sound toggle, invalid host PIN, connection recovery, and final-results rendering. Final-results rendering uses a fixture based on live state; complete game/scoring behavior is exercised by the Python suite.
 
-Limits: automated coverage does not prove every possible input combination or real-device behavior. iOS Safari, Android browsers, Windows/macOS launchers, audible synchronization, touch latency, accessibility, and 20 physical devices still require release testing. Canvas, WebSockets, host recovery, and multi-room hosting remain separate roadmap work.
+Limits: automated coverage does not prove every possible input combination or real-device behavior. iOS Safari, Android browsers, Windows/macOS launchers, audible synchronization, touch latency, accessibility, and 20 physical devices still require release testing. The optional landing tutorial uses Canvas and is packaged as a second Vite HTML entry; the main stages continue to render with HTML/CSS/SVG. WebSockets, host recovery, and multi-room hosting remain separate roadmap work.

@@ -87,7 +87,7 @@ class GameTest(unittest.TestCase):
                 self.assertIsNone(g.players[guest]['team'])
                 self.assertEqual(g.teams[0]['score'], 0)
                 if stage == 1:
-                    self.assertEqual(g.teams[0]['order'][0], host)
+                    self.assertEqual(g.teams[0]['relay_keys'][0], 'U')
                 g.act(host, {'action': 'pause'})
         g.act(host, {'action': 'test_stage', 'stage': 1, 'bots': 0})
         self.assertFalse(g.paused)
@@ -176,6 +176,63 @@ class GameTest(unittest.TestCase):
             else:
                 handler.do_POST()
 
+    def test_mandatory_landing_ownership_expiry_and_maze_gate(self):
+        g, clock, host = self.ai_lobby()
+        tokens = []
+        for i in range(20):
+            token = g.act(None, {'action': 'join', 'name': f'Tutorial {i}'})['token']
+            g.act(token, {'action': 'team', 'team': i // 4})
+            tokens.append(token)
+        g.act(host, {'action': 'start'})
+        self.assertEqual((g.phase, g.stage), ('tutorial', -1))
+        with self.assertRaises(ValueError):
+            g.act(host, {'action': 'start'})
+        clock[0] = g.start
+        g.tick()
+        old_round = g.round_id
+        for slot, token in enumerate(tokens[:4]):
+            self.assertEqual(g.public(token)['landing_roles'], [game.LANDING_ROLES[slot]])
+            g.landing_input(token, game.LANDING_ROLES[(slot + 1) % 4], True, g.round_id)
+        g.landing_input(tokens[4], 'left', True, g.round_id)
+        g.landing_input(tokens[0], 'left', True, g.round_id - 1)
+        self.assertEqual(g.landing.inputs, {})
+        for slot, token in enumerate(tokens[:4]):
+            g.landing_input(token, game.LANDING_ROLES[slot], True, g.round_id)
+        self.assertEqual(len(g.landing.inputs), 4)
+        g.paused = True
+        before = dict(g.landing.state)
+        g.tick()
+        g.landing_input(tokens[0], 'left', False, g.round_id)
+        self.assertEqual(before, g.landing.state)
+        self.assertEqual(len(g.landing.inputs), 4)
+        g.paused = False
+        clock[0] += .7
+        g.tick()
+        self.assertEqual(g.landing.inputs, {})
+        self.finish_tutorial(g, clock)
+        self.assertEqual((g.phase, g.stage), ('playing', 0))
+        self.assertNotEqual(g.round_id, old_round)
+        self.assertTrue(all('tutorial_result' in t for t in g.teams))
+        self.assertTrue(all(t['score'] == 0 and not t['history'] for t in g.teams))
+        g.act(host, {'action': 'reset'})
+        g.act(host, {'action': 'start'})
+        self.assertEqual(g.phase, 'tutorial')
+        self.assertTrue(all('tutorial_result' not in t for t in g.teams))
+
+    def test_landing_small_rosters_cover_all_four_controls(self):
+        g = game.Game()
+        for size in (1, 2, 3, 4):
+            roles = g.landing_roles(size)
+            self.assertEqual(len(roles), size)
+            self.assertCountEqual([role for group in roles for role in group], game.LANDING_ROLES)
+
+    def finish_tutorial(self, g, clock):
+        while g.phase == 'tutorial':
+            clock[0] = g.start + 61
+            g.tick()
+            clock[0] += 3.1
+            g.tick()
+
     def ai_lobby(self):
         g = game.Game()
         clock = [0.0]
@@ -196,6 +253,7 @@ class GameTest(unittest.TestCase):
         self.assertFalse(any(k in json.dumps(state) for k in g.players))
         for stage in range(4):
             g.act(host, {'action': 'start'})
+            self.finish_tutorial(g, clock)
             self.assertEqual(g.stage, stage)
             g.tick()  # Countdown must not generate inputs.
             self.assertTrue(all(t['feedback'] == '준비' for t in g.teams))
@@ -233,6 +291,7 @@ class GameTest(unittest.TestCase):
         for _ in range(2):
             g.act(host, {'action': 'add_ai', 'team': 1})
         g.act(host, {'action': 'start'})
+        self.finish_tutorial(g, clock)
         for action in ('add_ai', 'remove_ai', 'clear_ai'):
             with self.assertRaises(ValueError):
                 g.act(host, {'action': action, 'team': 0})
@@ -268,6 +327,7 @@ class GameTest(unittest.TestCase):
         for team in (0, 1, 1):
             g.act(host, {'action': 'add_ai', 'team': team})
         g.act(host, {'action': 'start'})
+        self.finish_tutorial(g, clock)
         t = g.teams[0]
         # Find a corridor step for each role, independently of maze shape.
         for axis, human_owned in ((('U', 'D'), True), (('L', 'R'), False)):
@@ -296,6 +356,7 @@ class GameTest(unittest.TestCase):
                 k = g.act(None, {'action': 'join', 'name': f'{team}-{i}'})['token']
                 g.act(k, {'action': 'team', 'team': team})
         g.begin()
+        self.finish_tutorial(g, clock)
         return g, clock, host
 
     def test_all_stages_with_20_players(self, host_playing=False, sizes=(4, 4, 4, 4, 4)):
@@ -326,6 +387,7 @@ class GameTest(unittest.TestCase):
             player['ai'] = True
         for stage in (1,2,3):
             g.begin()
+            self.finish_tutorial(g, clock)
             for _ in range(100000):
                 clock[0] += .02
                 g.tick()
@@ -344,6 +406,7 @@ class GameTest(unittest.TestCase):
     def test_start_play_enrolls_host_and_accepts_input(self):
         g, clock, host = self.ai_lobby()
         g.act(host, {'action': 'start_play'})
+        self.finish_tutorial(g, clock)
         self.assertEqual(g.members(0), [host])
         state = g.public(host)
         self.assertEqual(state['my_team'], state['active_team'])
@@ -362,6 +425,7 @@ class GameTest(unittest.TestCase):
                 g, clock, host = self.ai_lobby()
                 g.act(host, {'action': 'add_ai', 'team': 0})
                 g.act(host, {'action': 'start'})
+                self.finish_tutorial(g, clock)
                 g.stage = stage
                 t = g.teams[0]
                 bot = t['members'][0]
@@ -371,7 +435,7 @@ class GameTest(unittest.TestCase):
                 old_round, old_start = g.round_id, g.start
                 g.act(host, {'action': 'take_ai'})
                 self.assertEqual(t['members'], [host])
-                self.assertTrue(all(k == host for k in t['order']))
+                self.assertEqual(len(t['relay_keys']), 1)
                 self.assertEqual(t['successes'], [host])
                 self.assertEqual(t['used'][host], 0)
                 self.assertNotIn(bot, g.players)
@@ -388,6 +452,7 @@ class GameTest(unittest.TestCase):
                 g.act(host, {'action': 'add_ai', 'team': team})
         with self.assertRaises(ValueError):
             g.act(host, {'action': 'start_play'})
+            self.finish_tutorial(g, clock)
         self.assertEqual(g.phase, 'lobby')
         self.assertIsNone(g.players[host]['team'])
         self.assertEqual([len(g.members(i)) for i in (0, 1)], [4, 4])
@@ -405,12 +470,14 @@ class GameTest(unittest.TestCase):
                 g, clock, host = self.ai_lobby()
                 with self.assertRaises(ValueError):
                     g.act(host, {'action': 'start'})
+                    self.finish_tutorial(g, clock)
                 for _ in range(total):
                     g.act(host, {'action': 'add_ai', 'team': 0})
                 g.act(host, {'action': 'shuffle'})
                 self.assertEqual(sum(len(g.members(i)) for i in range(g.team_count)), total)
                 for stage in range(4):
                     g.act(host, {'action': 'start'})
+                    self.finish_tutorial(g, clock)
                     for _ in range(30001):
                         g.tick()
                         if g.phase == 'results':
@@ -432,6 +499,7 @@ class GameTest(unittest.TestCase):
         self.assertIsNotNone(g.players[host]['team'])
         self.assertEqual([len(g.members(i)) for i in range(2)], [2, 2])
         g.act(host, {'action': 'start'})
+        self.finish_tutorial(g, clock)
         self.assertIsNotNone(g.public(host)['my_slot'])
         g.act(host, {'action': 'pause'})
         self.assertTrue(g.paused)
@@ -464,7 +532,7 @@ class GameTest(unittest.TestCase):
         self.assertEqual(before, g.teams[0]['pos'])
         g.stage = 2
         clock[0] = g.rope_beat(0)
-        g.input(user, 'S', g.round_id)
+        g.input(user, g.teams[0]['rope_keys'][0], g.round_id)
         clock[0] += .19
         g.tick()
         self.assertEqual(g.teams[0]['rope_progress'], .5)
@@ -517,10 +585,10 @@ class GameTest(unittest.TestCase):
         first, second = g.teams
         clock[0] = g.rope_beat(0)
         player = first['members'][0]
-        g.input(player, 'S', g.round_id)
+        g.input(player, first['rope_keys'][0], g.round_id)
         jump_time = first['jumps'][0]
         clock[0] += .01
-        g.input(player, 'S', g.round_id)
+        g.input(player, first['rope_keys'][0], g.round_id)
         g.input(second['members'][0], 'S', g.round_id)
         state = g.public(host)
         self.assertEqual(first['jumps'][0], jump_time)
@@ -586,54 +654,116 @@ class GameTest(unittest.TestCase):
             self.assertEqual(len(set(lengths)), 1)
         self.assertTrue(all(len(set(corners)) == 3 for corners in seen.values()))
 
-    def test_relay_misses_add_one_second_each_and_patterns_change(self):
-        g, clock, host = self.setup_game((2,2))
-        g.stage = 1
+    def relay_game(self, sizes=(2, 2)):
+        g, clock, host = self.setup_game(sizes)
+        g.phase, g.stage = 'results', 0
+        g.begin()
+        self.finish_tutorial(g, clock)
+        return g, clock, host
+
+    def test_relay_fixed_ownership_window_and_duplicate_inputs(self):
+        g, clock, host = self.relay_game()
         t = g.teams[0]
-        old = t['patterns'][0][:], t['note_times'][:]
-        clock[0] = t['turn_start'] + 3 + t['note_times'][-1] + .21
+        note = min(t['relay_notes'], key=lambda note: note['at'])
+        owner = t['members'][t['relay_keys'].index(note['key'])]
+        other = next(token for token in t['members'] if token != owner)
+        clock[0] = note['at']
+        g.input(other, note['key'], g.round_id)
+        self.assertEqual(note['status'], 'pending')
+        g.input(owner, note['key'], g.round_id - 1)
+        self.assertEqual(note['status'], 'pending')
+        g.paused = True
+        g.input(owner, note['key'], g.round_id)
+        self.assertEqual(note['status'], 'pending')
+        g.paused = False
+        g.input(owner, note['key'], g.round_id)
+        g.input(owner, note['key'], g.round_id)
+        self.assertEqual(note['status'], 'hit')
+        self.assertEqual(t['relay_hit_count'], 1)
+        next_note = sorted(t['relay_notes'], key=lambda n: n['at'])[1]
+        clock[0] = next_note['at'] + game.RELAY_WINDOW + .001
+        owner = t['members'][t['relay_keys'].index(next_note['key'])]
+        g.input(owner, next_note['key'], g.round_id)
+        self.assertEqual(next_note['status'], 'miss')
+        self.assertEqual(t['relay_misses'], 1)
         g.tick()
-        self.assertEqual(t['relay_misses'], 7)
-        self.assertEqual(t['relay_done'], 1)
-        self.assertNotEqual(t['patterns'][1], old[0])
-        self.assertNotEqual(t['note_times'], old[1])
-        # No future notes due before race finish; seven misses cost seven seconds.
-        t['turn_start'] = g.start + 1000
-        clock[0] = g.start + 66.9
+        self.assertEqual(t['relay_misses'], 1)
+
+    def test_relay_continuous_random_speed_overtaking_and_private_future(self):
+        g, clock, host = self.relay_game((4, 4))
+        t = g.teams[0]
+        with patch.object(game.random, 'uniform', side_effect=[1.2, 4.2] * 200):
+            g.new_relay_stream(t)
+        notes = t['relay_notes']
+        arrival = sorted(notes, key=lambda note: note['at'])
+        self.assertGreater(arrival[-1]['at'] - g.start, 178)
+        self.assertTrue(all(b['at'] - a['at'] >= .5 - 1e-8 for a, b in zip(arrival, arrival[1:])))
+        self.assertTrue(any(a['at'] > b['at'] for a, b in zip(notes, notes[1:])))
+        self.assertEqual(len(set(t['relay_keys'])), 4)
+        clock[0] = g.start + 2
+        public = g.public(t['members'][0])['teams'][0]
+        self.assertTrue(all(note['spawn'] <= clock[0] for note in public['relay_notes']))
+        self.assertLess(len(public['relay_notes']), len(notes))
+        self.assertEqual(g.public(host)['teams'][1]['relay_notes'], [])
+        self.assertNotIn(t['members'][0], json.dumps(public))
+
+    def test_relay_miss_penalties_and_finish_cutoff(self):
+        g, clock, host = self.relay_game()
+        t = g.teams[0]
+        # A deterministic short stream isolates finish math from later misses.
+        first = min(t['relay_notes'], key=lambda note: note['at'])
+        t['relay_notes'] = [first]
+        clock[0] = first['at'] + game.RELAY_WINDOW + .001
+        g.tick()
+        self.assertEqual(t['relay_misses'], 1)
+        clock[0] = g.start + 60.99
         g.tick()
         self.assertIsNone(t['finish'])
-        clock[0] = g.start + 67
+        clock[0] = g.start + 61
         g.tick()
-        self.assertEqual(t['finish'], 67)
+        self.assertEqual(t['finish'], 61)
         g.teams[1]['finish'] = 70
         g.end()
-        self.assertEqual(t['points'], 113)
+        self.assertEqual(t['points'], 119)
 
-    def test_relay_space_key_and_tighter_window(self):
-        g, clock, host = self.setup_game((2, 2))
-        g.stage = 1
+    def test_rope_keys_change_and_wrong_key_consumes_attempt(self):
+        g, clock, host = self.setup_game((4, 4))
+        g.phase, g.stage = 'results', 1
+        g.begin()
+        self.finish_tutorial(g, clock)
         t = g.teams[0]
-        self.assertTrue(all(len(p) == 7 and p.count('S') == 2 for p in t['patterns']))
-        t['patterns'][0] = ['S', 'U', 'D', 'L', 'R', 'S', 'U']
-        runner = t['order'][0]
-        clock[0] = t['turn_start'] + 3
-        g.input(runner, 'S', g.round_id)
-        self.assertEqual(t['relay_hits'], [0])
-        clock[0] += t['note_times'][1] + game.RELAY_WINDOW + .01
-        g.input(runner, 'U', g.round_id)
-        self.assertTrue(t['relay_bad'])
-        self.assertEqual(t['relay_hits'], [0])
+        before = t['rope_keys'][:]
+        clock[0] = g.rope_beat(0, t)
+        owner = t['members'][0]
+        wrong = next(key for key in (*game.DIRECTIONS, 'S') if key != before[0])
+        g.input(owner, wrong, g.round_id)
+        g.input(owner, before[0], g.round_id)
+        self.assertNotIn(owner, t['successes'])
+        for slot, token in enumerate(t['members'][1:], 1):
+            g.input(token, before[slot], g.round_id)
+        clock[0] += game.ROPE_WINDOW + .001
+        g.tick()
+        self.assertEqual(t['jump_count'], 3)
+        self.assertTrue(all(a != b for a, b in zip(before, t['rope_keys'])))
+        current = t['rope_keys'][:]
+        g.public(owner)
+        self.assertEqual(current, t['rope_keys'])
+        clock[0] = g.rope_beat(1, t)
+        g.input(owner, current[0], g.round_id)
+        self.assertIn(owner, t['successes'])
+        self.assertEqual(g.public(owner)['teams'][0]['rope_keys'], current)
 
     def test_rope_runs_full_two_minutes_and_scores_success_count(self):
         g, clock, host = self.setup_game((2, 2))
         g.phase, g.stage = 'results', 1
         g.begin()
+        self.finish_tutorial(g, clock)
         self.assertEqual(g.limit, 120)
         t = g.teams[0]
         for i in range(30):
             clock[0] = g.rope_beat(i, t)
             for token in t['members']:
-                g.input(token, 'S', g.round_id)
+                g.input(token, t['rope_keys'][t['members'].index(token)], g.round_id)
             clock[0] += game.ROPE_WINDOW + .001
             g.tick()
         self.assertEqual(t['jump_count'], 60)
@@ -669,6 +799,45 @@ class GameTest(unittest.TestCase):
         clock[0] = g.start + 1.5*game.GOURD_PERIOD
         g.input(player, 'S', g.round_id)
         self.assertEqual(t['health'], 2*game.GOURD_HP-30)
+
+    def test_landing_tutorial_isolated_and_validated(self):
+        httpd = server.GameHTTPServer(('127.0.0.1', 0), GameService())
+        other = server.GameHTTPServer(('127.0.0.1', 0), GameService())
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        url = f'http://127.0.0.1:{httpd.server_port}'
+        before = httpd.service.snapshot()
+        def post(path, data, origin=None):
+            headers = {'Content-Type': 'application/json'}
+            if origin:
+                headers['Origin'] = origin
+            req = urllib.request.Request(url + '/api/tutorial/landing/' + path,
+                                         data=json.dumps(data).encode(), headers=headers)
+            return json.load(urllib.request.urlopen(req))
+        try:
+            page = urllib.request.urlopen(url + '/demos/landing/index.html').read()
+            self.assertIn(b'landing', page)
+            post('start', {})
+            post('input', {'client': 'test', 'role': 'up', 'pressed': True})
+            state = json.load(urllib.request.urlopen(url + '/api/tutorial/landing/state'))
+            self.assertEqual(state['status'], 'playing')
+            self.assertIn('up', state['active'])
+            self.assertLessEqual(state['fuel'], 50)
+            self.assertEqual(other.landing.snapshot()['status'], 'ready')
+            for data in ([], {'client': 'x', 'role': 'invalid', 'pressed': True},
+                         {'client': 'x', 'role': 'up', 'pressed': 1}):
+                with self.assertRaises(urllib.error.HTTPError) as caught:
+                    post('input', data)
+                self.assertEqual(caught.exception.code, 400)
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                post('start', {}, 'http://untrusted.invalid')
+            self.assertEqual(caught.exception.code, 403)
+            after = httpd.service.snapshot()
+            for field in ('phase', 'stage', 'lobby', 'teams'):
+                self.assertEqual(before[field], after[field])
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+            other.server_close()
 
     def test_http_tokens_and_twenty_sessions(self):
         httpd = server.GameHTTPServer(('127.0.0.1', 0), GameService())

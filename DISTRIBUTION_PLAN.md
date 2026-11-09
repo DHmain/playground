@@ -4,7 +4,7 @@ Assessment date: 2026-11-09
 Release decision: suitable for supervised LAN pilots; not ready for general public hosting.  
 Scope: game direction, product, engineering, validation, distribution, and operation.
 
-Gameplay update: maze now has three rotating, growing courses; relay is a 60-second runner race with one-second miss penalties and time-based points; jump rope awards raw successful jumps during 120 seconds; gourd center speed is ×1.5 and health is team size ×300. See README.md for the current scoring rules. Latest verification: 30 Python tests and 3 Playwright tests pass.
+Gameplay update: maze has three rotating, growing courses; relay is a continuous 60-second race with fixed per-player keys, independently moving overtaking notes, maximum 120 BPM arrivals, one-second miss penalties and time-based points; jump rope changes each player’s assigned key every cycle and awards raw successful jumps during 120 seconds; gourd center speed is ×1.5 and health is team size ×300. See README.md for the current scoring rules. Latest verification: 30 Python tests and 3 Playwright tests pass.
 
 ## 1. Product direction
 
@@ -227,6 +227,8 @@ These are release targets, not verified properties of the current build.
 | M5: Commercial expansion | Validated pricing, organizational features, optional billing and new content | Repeat use and willingness to pay demonstrated by pilot organizers |
 
 Sequence can overlap where safe, but do not open public hosting before M3/M4 controls are complete. No delivery-date estimate is committed: estimate work after the first refactor and pilot expose the remaining scope.
+
+Optional lobby cooperation tutorial: can landing is packaged with the main game, shares a practice flight among visitors, and does not affect event scores or teams. It does not replace per-stage practice or field validation.
 
 ## 9. What to do next
 

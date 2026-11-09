@@ -6,6 +6,8 @@ import { animate } from "./animation";
 import { ropeClock } from "./timing";
 import { beep, updateAudio } from "./audio";
 import { fetchState, postAction } from "./transport";
+import { landingScreen, animateLanding } from "./landing";
+import type { LandingRole } from "./types";
 
 ("use strict");
 const titles = [
@@ -16,8 +18,8 @@ const titles = [
 ];
 const desc = [
   "15×15 → 19×19 → 23×23 미로를 조별로 순환! 담당 방향을 협동해 출구를 찾으세요. 직선은 최대 3칸이며 최단 경로 길이는 동일합니다.",
-  "현재 주자만 방향키와 SPACE를 입력하세요. 60초 달리기 · MISS마다 +1초 · 매 시도 새로운 리듬 · ±0.16초 판정.",
-  "최대 100 BPM의 조별 8박 변속 패턴을 읽고 Space! ±0.12초 판정으로 120초 동안 성공한 점프 수만큼 점수를 얻으세요.",
+  "각자 담당 키 하나로 연속 노트를 처리하세요. 노트별 속도가 달라 추월 가능 · 최대 120 BPM · MISS마다 +1초 · ±0.16초 판정.",
+  "줄이 넘어갈 때마다 바뀌는 내 키를 확인하세요! 최대 100 BPM · ±0.12초 판정 · 120초 동안 성공한 점프마다 1점.",
   "중앙에서 가속하는 타겟 바! 2초 주기 · 좁아진 중앙을 정확히 노리세요.",
 ];
 
@@ -58,6 +60,11 @@ async function poll() {
     rtt = performance.now() - before;
     baseTime = data.now + rtt / 2000;
     basePerf = performance.now();
+    if (
+      S &&
+      (data.phase !== "tutorial" || data.round !== S.round || data.paused)
+    )
+      clearLandingInputs();
     S = data;
     online = true;
     element("connection").textContent = `연결됨 · ${Math.round(rtt)}ms`;
@@ -79,6 +86,7 @@ async function poll() {
     }
   } catch (err) {
     online = false;
+    clearLandingInputs();
     element("connection").textContent = "서버 연결 끊김 · 재연결 중";
     element("connection").className = "connection offline";
     if (!S) joinScreen();
@@ -106,21 +114,27 @@ function people(list: Person[]) {
 }
 let testBots = 0;
 function testPanel() {
-  return `<section class="card"><div class="eyebrow">GAME TEST · 직접 플레이 테스트</div><p>게임을 선택하면 점수와 진행을 초기화하고 바로 시작합니다. 혼자 플레이하면 모든 입력을 직접 확인할 수 있습니다.</p><label>AI 팀원 <select data-test-bots>${[0, 1, 2, 3].map((n) => `<option value="${n}" ${n === testBots ? "selected" : ""}>${n}명${n === 0 ? " · 혼자 플레이" : ""}</option>`).join("")}</select></label><div class="row" style="margin-top:12px">${titles.map((name, stage) => `<button data-action="test_stage" data-stage="${stage}">${name}</button>`).join("")}${S.stage >= 0 ? `<button class="primary" data-action="test_stage" data-stage="${S.stage}">현재 게임 다시 시작</button>` : ""}</div><p class="small muted">방향키 / SPACE 또는 화면 버튼 · 리듬 계주는 매 시도 새로운 패턴 · 소리는 상단 버튼으로 켜세요.</p></section>`;
+  return `<section class="card"><div class="eyebrow">GAME TEST · 직접 플레이 테스트</div><p>게임을 선택하면 점수와 진행을 초기화하고 바로 시작합니다. 혼자 플레이하면 모든 입력을 직접 확인할 수 있습니다.</p><label>AI 팀원 <select data-test-bots>${[0, 1, 2, 3].map((n) => `<option value="${n}" ${n === testBots ? "selected" : ""}>${n}명${n === 0 ? " · 혼자 플레이" : ""}</option>`).join("")}</select></label><div class="row" style="margin-top:12px">${titles.map((name, stage) => `<button data-action="test_stage" data-stage="${stage}">${name}</button>`).join("")}${S.stage >= 0 ? `<button class="primary" data-action="test_stage" data-stage="${S.stage}">현재 게임 다시 시작</button>` : ""}</div><p class="small muted">방향키 / SPACE 또는 화면 버튼 · 계주는 고정 키·연속 노트, 줄넘기는 매 회차 새 키 · 소리는 상단 버튼으로 켜세요.</p></section>`;
 }
 function render() {
   if (!token || !S?.known) {
     joinScreen();
     return;
   }
-  if (S.phase === "lobby") lobby();
+  if (S.phase === "tutorial") {
+    mount(landingScreen(S));
+    animateLanding(S, serverNow());
+  } else if (S.phase === "lobby") lobby();
   else match();
+}
+function landingTutorialCard() {
+  return `<section class="card"><div class="eyebrow">필수 협동 튜토리얼</div><h2>깡통 착륙 → 1스테이지</h2><p class="muted">경기를 시작하면 각 조가 차례로 착륙을 체험합니다. 4인 팀은 A(왼쪽) · L(오른쪽) · U(출력 증가) · D(출력 감소)를 한 명씩 맡습니다. 모든 조의 비행이 끝나면 미로가 자동 시작됩니다. 연료 50 · 연습 점수는 본경기에 미반영.</p></section>`;
 }
 function lobby() {
   const focus = document.activeElement?.id;
   const pin = document.querySelector<HTMLInputElement>("#pin")?.value || "";
   mount(
-    `<div class="row between"><div><div class="eyebrow">LOBBY / TEAM SELECTION</div><h1>우리 팀을 완성하세요</h1><p class="muted">빈자리의 ＋ 버튼으로 참여하세요. 사회자도 조에 들어가 함께 플레이할 수 있습니다.</p></div><span class="badge">사회자: ${e(S.host_name || "아직 없음")}</span></div><section class="card"><div class="row between"><div><h2>대기 인원 · ${S.waiting.length}명</h2><div class="row">${people(S.waiting) || '<span class="muted">대기 중인 참가자가 없습니다.</span>'}</div></div><button data-action="spectate">조에서 나가기 / 대기로</button></div></section><div class="row between"><h2>조 편성 <span class="muted small">각 1~4명 · 1개 조부터 진행 가능</span></h2>${S.host ? `<div class="row"><select aria-label="조 수" data-team-count>${[2, 3, 4, 5].map((n) => `<option ${S.team_count === n ? "selected" : ""}>${n}</option>`).join("")}</select><button data-action="shuffle">⤨ 랜덤 섞기</button><button data-action="clear_ai">임시 AI 전체 제거</button><button class="primary" data-action="start_play">${S.my_team === null ? "플레이어로 참가하고 시작 →" : "우리 조로 경기 시작 →"}</button>${S.my_team === null ? '<button data-action="start">관전으로 시작</button>' : ""}</div>` : ""}</div><div class="teams" style="--cols:${S.team_count}">${S.lobby.map((list, i) => `<section class="teamcard" style="--team:var(--c${i})"><div class="row between"><h2>${i + 1}조</h2><span class="badge">${list.length}/4</span></div>${[0, 1, 2, 3].map((j) => (list[j] ? `<div class="slot">${e(list[j].name)} ${list[j].ai ? "· AI " : ""}${list[j].me ? "(나)" : ""}<span class="small muted">${list[j].online ? "" : " · 오프라인"}</span></div>` : `<div class="slot empty"><button class="wide" data-action="team" data-team="${i}">＋ 참여</button></div>`)).join("")}${S.host ? `<div class="row" style="margin-top:10px"><button ${list.length >= 4 ? "disabled" : ""} data-action="add_ai" data-team="${i}">＋ 임시 AI</button><button ${list.some((p) => p.ai) ? "" : "disabled"} data-action="remove_ai" data-team="${i}">AI 1명 제거</button></div>` : ""}</section>`).join("")}</div>${S.host ? '<div class="notice small">임시 AI는 테스트용 자동 참가자입니다. 한 조에 본인 또는 AI 한 명만 있어도 시작할 수 있습니다. 총 2~3명도 조를 나눠 경기할 수 있습니다. 직접 플레이하려면 빈자리의 ＋ 참여를 누르세요. 미로에서는 AI 담당 방향만 자동으로 움직입니다. 대기실에서 제거할 수 있으며 서버 종료 시 사라집니다.</div>' : ""}${!S.host && !S.host_name ? `<section class="card" style="margin-top:20px"><h2>사회자석</h2><p class="small muted">서버 실행 창에 표시된 PIN을 입력하세요. 현재 조를 유지하며 사회자와 플레이어를 겸할 수 있습니다.</p><div class="row"><input type="password" id="pin" aria-label="사회자 PIN" placeholder="사회자 PIN" value="${e(pin)}"><button data-action="host">사회자로 참여</button></div></section>` : ""}<details><summary>진행 및 인원 보정 규칙</summary><div class="card"><p>미로: 1명은 모든 방향, 3명은 한 명이 상하, 2명은 상하/좌우를 나눠 맡습니다. 계주: 60초 달리기이며 노트 MISS마다 1초가 추가됩니다. 줄넘기: 조별 변속 패턴에서 120초 동안 성공한 점프마다 1점을 얻습니다. 박 체력: 팀 인원 × 300, 바는 중앙에서 가속합니다.</p><p>각 조는 순서대로 경기하며 미로는 3회 순환하고 줄넘기는 2분간 진행합니다. 미로는 순위별 100/80/60/40/20점, 계주는 120점에서 추가 소요 초만큼 감점, 줄넘기는 성공 점프 수로 채점합니다. 미완주 팀은 진행률로 순위를 정합니다. 동률은 공동 순위, 동일 점수입니다. 인원 차이 보정은 시험용이며 미로의 소통 난도 차이는 남습니다.</p><p>랜덤 섞기는 온라인 참가자 전원을 배정합니다. 서버 재시작 시 경기 기록은 초기화됩니다.</p></div></details>`,
+    `${landingTutorialCard()}<div class="row between"><div><div class="eyebrow">LOBBY / TEAM SELECTION</div><h1>우리 팀을 완성하세요</h1><p class="muted">빈자리의 ＋ 버튼으로 참여하세요. 사회자도 조에 들어가 함께 플레이할 수 있습니다.</p></div><span class="badge">사회자: ${e(S.host_name || "아직 없음")}</span></div><section class="card"><div class="row between"><div><h2>대기 인원 · ${S.waiting.length}명</h2><div class="row">${people(S.waiting) || '<span class="muted">대기 중인 참가자가 없습니다.</span>'}</div></div><button data-action="spectate">조에서 나가기 / 대기로</button></div></section><div class="row between"><h2>조 편성 <span class="muted small">각 1~4명 · 1개 조부터 진행 가능</span></h2>${S.host ? `<div class="row"><select aria-label="조 수" data-team-count>${[2, 3, 4, 5].map((n) => `<option ${S.team_count === n ? "selected" : ""}>${n}</option>`).join("")}</select><button data-action="shuffle">⤨ 랜덤 섞기</button><button data-action="clear_ai">임시 AI 전체 제거</button><button class="primary" data-action="start_play">${S.my_team === null ? "플레이어로 참가하고 시작 →" : "우리 조로 경기 시작 →"}</button>${S.my_team === null ? '<button data-action="start">관전으로 시작</button>' : ""}</div>` : ""}</div><div class="teams" style="--cols:${S.team_count}">${S.lobby.map((list, i) => `<section class="teamcard" style="--team:var(--c${i})"><div class="row between"><h2>${i + 1}조</h2><span class="badge">${list.length}/4</span></div>${[0, 1, 2, 3].map((j) => (list[j] ? `<div class="slot">${e(list[j].name)} ${list[j].ai ? "· AI " : ""}${list[j].me ? "(나)" : ""}<span class="small muted">${list[j].online ? "" : " · 오프라인"}</span></div>` : `<div class="slot empty"><button class="wide" data-action="team" data-team="${i}">＋ 참여</button></div>`)).join("")}${S.host ? `<div class="row" style="margin-top:10px"><button ${list.length >= 4 ? "disabled" : ""} data-action="add_ai" data-team="${i}">＋ 임시 AI</button><button ${list.some((p) => p.ai) ? "" : "disabled"} data-action="remove_ai" data-team="${i}">AI 1명 제거</button></div>` : ""}</section>`).join("")}</div>${S.host ? '<div class="notice small">임시 AI는 테스트용 자동 참가자입니다. 한 조에 본인 또는 AI 한 명만 있어도 시작할 수 있습니다. 총 2~3명도 조를 나눠 경기할 수 있습니다. 직접 플레이하려면 빈자리의 ＋ 참여를 누르세요. 미로에서는 AI 담당 방향만 자동으로 움직입니다. 대기실에서 제거할 수 있으며 서버 종료 시 사라집니다.</div>' : ""}${!S.host && !S.host_name ? `<section class="card" style="margin-top:20px"><h2>사회자석</h2><p class="small muted">서버 실행 창에 표시된 PIN을 입력하세요. 현재 조를 유지하며 사회자와 플레이어를 겸할 수 있습니다.</p><div class="row"><input type="password" id="pin" aria-label="사회자 PIN" placeholder="사회자 PIN" value="${e(pin)}"><button data-action="host">사회자로 참여</button></div></section>` : ""}<details><summary>진행 및 인원 보정 규칙</summary><div class="card"><p>미로: 1명은 모든 방향, 3명은 한 명이 상하, 2명은 상하/좌우를 나눠 맡습니다. 계주: 각자 고정 키 하나 · 무작위 속도의 연속 노트 · 최대 120 BPM · MISS마다 +1초. 줄넘기: 회차마다 바뀌는 개인별 키 · 120초 동안 성공한 점프마다 1점. 박 체력: 팀 인원 × 300, 바는 중앙에서 가속합니다.</p><p>각 조는 순서대로 경기하며 미로는 3회 순환하고 줄넘기는 2분간 진행합니다. 미로는 순위별 100/80/60/40/20점, 계주는 120점에서 추가 소요 초만큼 감점, 줄넘기는 성공 점프 수로 채점합니다. 미완주 팀은 진행률로 순위를 정합니다. 동률은 공동 순위, 동일 점수입니다. 인원 차이 보정은 시험용이며 미로의 소통 난도 차이는 남습니다.</p><p>랜덤 섞기는 온라인 참가자 전원을 배정합니다. 서버 재시작 시 경기 기록은 초기화됩니다.</p></div></details>`,
   );
   if (focus === "pin") {
     const input = document.querySelector<HTMLInputElement>("#pin");
@@ -165,19 +179,19 @@ function controller(t: Team | undefined) {
               ? [["U", "D"], ["L"], ["R"]]
               : [["U"], ["D"], ["L"], ["R"]])[S.my_slot!]
       : S.stage === 1
-        ? ["U", "D", "L", "R", "S"]
-        : ["S"];
+        ? [t.relay_keys[S.my_slot!]]
+        : S.stage === 2
+          ? [t.rope_keys[S.my_slot!]]
+          : ["S"];
   let label =
     S.stage === 0
       ? "내 담당 방향: " + role.map((k) => arrows[k]).join(" ")
       : S.stage === 1
-        ? t.mine
-          ? "내 차례입니다!"
-          : "다른 팀원의 차례 · 준비하세요"
+        ? "내 고정 키: " + arrows[role[0]]
         : S.stage === 2
-          ? "줄이 발밑에 올 때 점프"
+          ? "이번 점프: " + (role[0] === "S" ? "SPACE" : arrows[role[0]])
           : "중앙에 맞춰 던지기";
-  return `<div class="row between"><strong>${t.id + 1}조 · ${e(t.members[S.my_slot!].name)}</strong><span class="badge">${label}</span></div>${S.stage === 3 ? `<div class="targetbar"><i class="zone"></i><i class="bull"></i><i class="needle" id="needle"></i></div><div class="small muted">중앙 30 · 안쪽 20 · 가장자리 10 · 중앙 가속 ×1.5 · 회전당 한 번</div>` : ""}<div class="controls">${role.map((k) => `<button class="key ${k === "S" ? "space primary" : ""}" data-key="${k}" ${S.stage === 1 && !t.mine ? "disabled" : ""}>${k === "S" ? "SPACE / 누르기" : arrows[k]}</button>`).join("")}</div><div class="small muted" style="text-align:center;margin-top:10px">길게 누르기·키 자동 반복은 입력되지 않습니다.</div>`;
+  return `<div class="row between"><strong>${t.id + 1}조 · ${e(t.members[S.my_slot!].name)}</strong><span class="badge">${label}</span></div>${S.stage === 3 ? `<div class="targetbar"><i class="zone"></i><i class="bull"></i><i class="needle" id="needle"></i></div><div class="small muted">중앙 30 · 안쪽 20 · 가장자리 10 · 중앙 가속 ×1.5 · 회전당 한 번</div>` : ""}<div class="controls">${role.map((k) => `<button class="key ${k === "S" ? "space primary" : ""}" data-key="${k}">${k === "S" ? "SPACE / 누르기" : arrows[k]}</button>`).join("")}</div><div class="small muted" style="text-align:center;margin-top:10px">${S.stage === 2 ? "매 회차 새 키 · 잘못 누르면 해당 회차 실패 · " : ""}길게 누르기·키 자동 반복은 입력되지 않습니다.</div>`;
 }
 function results() {
   const ordered = [...S.teams].sort((a, b) => a.rank - b.rank);
@@ -207,11 +221,92 @@ function sendKey(key: Key) {
   lastInput = performance.now();
   act("input", { key, round: S.round });
 }
+const landingSources = new Map<string, LandingRole>();
+const landingKeyMap: Record<string, LandingRole> = {
+  KeyA: "left",
+  ArrowLeft: "left",
+  KeyL: "right",
+  ArrowRight: "right",
+  KeyU: "up",
+  ArrowUp: "up",
+  KeyD: "down",
+  ArrowDown: "down",
+};
+function transmitLanding(role: LandingRole, pressed: boolean) {
+  if (!S || S.phase !== "tutorial") return;
+  void postAction(token, "landing_input", {
+    role,
+    pressed,
+    round: S.round,
+  }).catch(() => {});
+}
+function pressLanding(source: string, role: LandingRole) {
+  if (
+    !online ||
+    S?.phase !== "tutorial" ||
+    S.paused ||
+    S.my_team !== S.active_team ||
+    !S.landing_roles.includes(role) ||
+    landingSources.has(source)
+  )
+    return;
+  landingSources.set(source, role);
+  transmitLanding(role, true);
+}
+function releaseLanding(source: string) {
+  const role = landingSources.get(source);
+  landingSources.delete(source);
+  if (role && ![...landingSources.values()].includes(role))
+    transmitLanding(role, false);
+}
+function clearLandingInputs() {
+  const held = new Set(landingSources.values());
+  landingSources.clear();
+  held.forEach((role) => transmitLanding(role, false));
+}
+setInterval(() => {
+  if (online)
+    new Set(landingSources.values()).forEach((role) =>
+      transmitLanding(role, true),
+    );
+}, 180);
+document.addEventListener("keyup", (ev) => releaseLanding("key-" + ev.code));
+window.addEventListener("blur", clearLandingInputs);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) clearLandingInputs();
+});
+app.addEventListener("pointerdown", (ev) => {
+  const button = (ev.target as Element).closest<HTMLButtonElement>(
+    "[data-landing-role]",
+  );
+  if (!button || button.disabled) return;
+  ev.preventDefault();
+  button.setPointerCapture(ev.pointerId);
+  pressLanding(
+    "pointer-" + ev.pointerId,
+    button.dataset.landingRole as LandingRole,
+  );
+});
+for (const name of [
+  "pointerup",
+  "pointercancel",
+  "lostpointercapture",
+] as const) {
+  app.addEventListener(name, (ev) => releaseLanding("pointer-" + ev.pointerId));
+}
 document.addEventListener("keydown", (ev) => {
   if (
     ["INPUT", "SELECT", "TEXTAREA"].includes((ev.target as HTMLElement).tagName)
   )
     return;
+  if (S?.phase === "tutorial") {
+    const role = landingKeyMap[ev.code];
+    if (role) {
+      ev.preventDefault();
+      pressLanding("key-" + ev.code, role);
+    }
+    return;
+  }
   const k =
     (
       {
@@ -241,6 +336,7 @@ let lastSound = "";
 function frame() {
   requestAnimationFrame(frame);
   animate(S, serverNow());
+  if (S?.phase === "tutorial") animateLanding(S, serverNow());
   updateAudio(S);
   if (!S || S.paused || S.phase !== "playing" || serverNow() < S.start) return;
   const n = serverNow(),
@@ -255,10 +351,8 @@ function frame() {
       cue = `rope-${S.round}-${t.id}-` + (timing.index - 1);
   }
   if (S.stage === 1) {
-    const b = t.note_times.findIndex(
-      (offset) => Math.abs(n - t.turn_start - 3 - offset) < 0.06,
-    );
-    if (b >= 0) cue = "relay" + t.turn_start + "-" + b;
+    const note = t.relay_notes.find((note) => Math.abs(n - note.at) < 0.06);
+    if (note) cue = `relay-${S.round}-${t.id}-${note.id}`;
   }
   if (cue && cue !== lastSound) {
     lastSound = cue;

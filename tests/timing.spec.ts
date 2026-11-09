@@ -1,6 +1,17 @@
 import { test, expect } from "@playwright/test";
-import { targetPosition, ropeClock } from "../src/timing";
-import type { Team } from "../src/types";
+import { targetPosition, ropeClock, relayNoteX } from "../src/timing";
+import type { Team, RelayNote } from "../src/types";
+
+test("relay notes use their own speed and later spawns can overtake", () => {
+  const slow = { spawn: 10, at: 14.2, travel: 4.2 } as RelayNote;
+  const fast = { spawn: 11, at: 12.2, travel: 1.2 } as RelayNote;
+  expect(relayNoteX(slow, 11, 1000)).toBeLessThan(relayNoteX(fast, 11, 1000));
+  expect(relayNoteX(fast, 11.5, 1000)).toBeLessThan(
+    relayNoteX(slow, 11.5, 1000),
+  );
+  expect(relayNoteX(fast, fast.at, 1000)).toBeCloseTo(178);
+  expect(relayNoteX(slow, slow.at, 1000)).toBeCloseTo(178);
+});
 
 test("target motion wraps and follows all three speed regions", () => {
   for (const [phase, position] of [

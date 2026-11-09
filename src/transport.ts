@@ -21,7 +21,7 @@ export async function fetchState(token: string): Promise<GameState> {
     !state ||
     !Array.isArray(state.teams) ||
     !Number.isFinite(state.now) ||
-    !["lobby", "playing", "results"].includes(state.phase)
+    !["lobby", "tutorial", "playing", "results"].includes(state.phase)
   )
     throw new Error("서버 상태 형식이 잘못되었습니다.");
   return state;

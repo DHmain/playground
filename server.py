@@ -8,6 +8,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 from game_service import GameService
+from demos.landing.physics import LandingService
 
 ROOT = Path(__file__).resolve().parent
 
@@ -17,6 +18,7 @@ class GameHTTPServer(ThreadingHTTPServer):
 
     def __init__(self, address, service):
         self.service = service
+        self.landing = LandingService()
         super().__init__(address, Handler)
 
 
@@ -35,7 +37,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         try:
-            if self.path == '/api/state':
+            if self.path == '/api/tutorial/landing/state':
+                self.reply(200, self.server.landing.snapshot())
+            elif self.path == '/api/state':
                 snapshot = self.server.service.snapshot(self.headers.get('X-Player'))
                 self.reply(200, snapshot)
             else:
@@ -58,7 +62,8 @@ class Handler(BaseHTTPRequestHandler):
             pass
 
     def do_POST(self):
-        if self.path != '/api/action':
+        tutorial = self.path in ('/api/tutorial/landing/start', '/api/tutorial/landing/input')
+        if self.path != '/api/action' and not tutorial:
             self.reply(404, {'error': '찾을 수 없습니다.'})
             return
         try:
@@ -71,7 +76,10 @@ class Handler(BaseHTTPRequestHandler):
             if not 0 < length <= 8192:
                 raise ValueError('요청 크기가 잘못되었습니다.')
             data = json.loads(self.rfile.read(length))
-            result = self.server.service.action(self.headers.get('X-Player'), data)
+            if tutorial:
+                result = self.server.landing.action(self.path.rsplit('/', 1)[1], data)
+            else:
+                result = self.server.service.action(self.headers.get('X-Player'), data)
             self.reply(200, result)
         except (ValueError, KeyError, TypeError, IndexError) as e:
             self.reply(400, {'error': str(e)})

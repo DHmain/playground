@@ -15,12 +15,21 @@ export type ActionName =
   | "remove_ai"
   | "clear_ai"
   | "input"
+  | "landing_input"
   | "test_stage";
 export interface Person {
   name: string;
   online: boolean;
   ai: boolean;
   me: boolean;
+}
+export interface RelayNote {
+  id: number;
+  key: Key;
+  spawn: number;
+  at: number;
+  travel: number;
+  status: "pending" | "hit" | "miss";
 }
 // Stage fields are supplied by the API for their corresponding stage only.
 // Renderers are selected by GameState.stage before accessing them.
@@ -33,7 +42,6 @@ export interface Team {
   finish: number | null;
   feedback: string;
   health: number;
-  relay_done: number;
   maze_lap: number;
   maze_start: number[];
   maze_done: number;
@@ -49,14 +57,10 @@ export interface Team {
   maze: number[][];
   goal: number[];
   path_length: number;
-  runner: string;
-  mine: boolean;
-  turn_start: number;
-  pattern: Key[];
-  note_times: number[];
-  attempt: number;
-  hits: number[];
-  bad: boolean;
+  relay_keys: Key[];
+  relay_notes: RelayNote[];
+  relay_hit_count: number;
+  rope_keys: Key[];
   rope_pattern: number[];
   beat_index: number;
   successes: number[];
@@ -69,7 +73,9 @@ export interface Team {
 export interface GameState {
   game_test: boolean;
   now: number;
-  phase: "lobby" | "playing" | "results";
+  phase: "lobby" | "tutorial" | "playing" | "results";
+  landing: LandingState | null;
+  landing_roles: LandingRole[];
   stage: number;
   start: number;
   limit: number;
@@ -86,12 +92,27 @@ export interface GameState {
   lobby: Person[][];
   waiting: Person[];
   rules: {
-    relay_notes: number;
-    relay_step: number;
+    relay_max_bpm: number;
+    relay_min_interval: number;
     relay_window: number;
     rope_target: number;
     rope_window: number;
     gourd_period: number;
     gourd_hp: number;
   };
+}
+export type LandingRole = "left" | "right" | "up" | "down";
+export interface LandingState {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  fuel: number;
+  throttle: number;
+  elapsed: number;
+  wind: number;
+  status: "ready" | "playing" | "landed" | "crashed";
+  score: number;
+  reason: string;
+  active: LandingRole[];
 }

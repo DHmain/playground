@@ -35,11 +35,15 @@ test("built client: all stages, inputs, pause, AI, reconnect, mobile, normal edi
     await page.keyboard.press(stage === 0 ? "ArrowUp" : "Space");
     await page.locator(".controller .key").first().dispatchEvent("pointerdown");
     if (stage === 1) {
-      await expect(page.locator(".relay-note")).toHaveCount(7);
+      await expect
+        .poll(() => page.locator(".relay-note").count())
+        .toBeGreaterThan(0);
       await expect(page.locator(".runner-race")).toBeVisible();
       await expect(page.locator(".relay-runner")).toBeVisible();
-      await expect(page.locator(".relay-note .note-arrow")).toHaveCount(5);
-      await expect(page.locator(".relay-note .note-space")).toHaveCount(2);
+      expect(
+        await page.locator(".relay-note .note-arrow").count(),
+      ).toBeGreaterThan(0);
+      await expect(page.locator(".relay-note .note-space")).toHaveCount(0);
       expect(
         await page
           .locator(".relay-runner")
@@ -55,12 +59,20 @@ test("built client: all stages, inputs, pause, AI, reconnect, mobile, normal edi
       expect(after!.y).toBeCloseTo(before!.y);
       expect(await note!.evaluate((el) => el.isConnected)).toBe(true);
       const old = (await state()).teams[0];
+      const lastId = Math.max(
+        ...old.relay_notes.map((note: { id: number }) => note.id),
+      );
       await expect
-        .poll(async () => (await state()).teams[0].attempt, { timeout: 12000 })
-        .toBeGreaterThan(old.attempt);
-      const fresh = (await state()).teams[0];
-      expect(fresh.pattern).not.toEqual(old.pattern);
-      expect(fresh.note_times).not.toEqual(old.note_times);
+        .poll(async () =>
+          Math.max(
+            ...(await state()).teams[0].relay_notes.map(
+              (note: { id: number }) => note.id,
+            ),
+          ),
+        )
+        .toBeGreaterThan(lastId);
+      expect((await state()).teams[0].relay_keys).toEqual(old.relay_keys);
+      await expect(page.locator(".controller .key")).toHaveCount(1);
     }
     if (stage === 2) {
       await expect
@@ -76,6 +88,14 @@ test("built client: all stages, inputs, pause, AI, reconnect, mobile, normal edi
       );
       expect(current.bpm).toBeLessThanOrEqual(100);
       expect((await state()).limit).toBe(120);
+      await expect(page.locator(".controller .key")).toHaveCount(1);
+      const beforeKey = await page
+        .locator(".controller .key")
+        .getAttribute("data-key");
+      await expect
+        .poll(() => page.locator(".controller .key").getAttribute("data-key"))
+        .not.toBe(beforeKey);
+      expect(current.rope_keys).toHaveLength(current.members.length);
     }
     if (stage === 3) {
       expect((await state()).rules.gourd_period).toBe(2);
@@ -104,7 +124,7 @@ test("built client: all stages, inputs, pause, AI, reconnect, mobile, normal edi
   await expect
     .poll(async () => (await state()).teams[0].members.length)
     .toBe(4);
-  expect((await state()).teams[0].mine).toBe(true);
+  expect((await state()).teams[0].relay_keys).toEqual(["U", "D", "L", "R"]);
   await page.reload();
   await expect(page.getByText("GAME TEST · 직접 플레이 테스트")).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
@@ -129,7 +149,7 @@ test("built client: all stages, inputs, pause, AI, reconnect, mobile, normal edi
   await page.getByLabel("조 수").selectOption("2");
   await page.getByRole("button", { name: "랜덤 섞기" }).click();
   await page.getByRole("button", { name: "우리 조로 경기 시작" }).click();
-  await expect.poll(async () => (await state()).phase).toBe("playing");
+  await expect.poll(async () => (await state()).phase).toBe("tutorial");
   const finished = await state();
   finished.phase = "results";
   finished.stage = 3;

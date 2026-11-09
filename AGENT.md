@@ -80,9 +80,9 @@ HTTP and browser tests need permission to bind local ports. Chromium may need sy
 - Preserve host authorization, participant-token privacy, stale-round rejection, pause behavior, and duplicate/per-cycle input limits.
 - Each team receives three randomly ordered, nonrepeating maze starting corners; rotate the grid, start, opposite exit, and distance map together. Future corner assignments remain server-side.
 - Maze straight corridors allow at most three consecutive moves (four open cells) before turning. Maze roles depend on team size. Generated team mazes have equal shortest-path length, which does not guarantee identical human difficulty.
-- Rhythm relay uses five horizontal key lanes with right-to-left note motion, seven notes per pattern (five arrows and two Space notes), a 60-second runner race with +1 second per missed note, and a ±0.16-second window.
-- Every relay retry and runner handoff must change both the key pattern and rhythm from the preceding attempt. Gaps are 0.36/0.48/0.60 seconds twice each, shuffled, totaling 2.88 seconds between first and last notes. Patterns rotate to the next runner regardless of hits. Relay points are max(0, 180 minus finish seconds), DNF scores zero.
-- Jump rope is capped at 100 BPM: shuffled 0.60/0.72/0.84/0.96-second intervals, twice each. Jump rope runs for 120 seconds, awarding one point per successful player jump. Gourd target cycles last 2.0 seconds, center slope is 1.5, and health is team size times 300.
+- Stage 2: every player owns one fixed arrow key (U/D/L/R by roster slot; smaller teams only receive owned keys). Notes stream continuously until the 60-second race finishes, with +1 second per missed note and a ±0.16-second window. Notes have independent 1.2–4.2-second travel times and can overtake. Arrival gaps are randomized 0.5/0.6/0.75/1 seconds (maximum 120 BPM); spawn order is not arrival order. Only spawned notes are public.
+- No relay attempts, seven-note patterns, or runner handoffs remain. Relay points are max(0, 180 minus finish seconds), DNF scores zero.
+- Stage 3: each player receives one random U/D/L/R/Space key for the current rope cycle. After that cycle’s judgment window, every player receives a different random key; future keys are not exposed. A wrong key consumes the cycle attempt, as does an early input. Jump rope is capped at 100 BPM: shuffled 0.60/0.72/0.84/0.96-second intervals, twice each. Jump rope runs for 120 seconds, awarding one point per successful player jump. Gourd target cycles last 2.0 seconds, center slope is 1.5, and health is team size times 300.
 - AI and human judgments use the same rules; practice AI is deliberately precise.
 - Changes to timing formulas must remain consistent across Python rules, TypeScript visuals/audio, and tests.
 
@@ -103,7 +103,11 @@ HTTP and browser tests need permission to bind local ports. Chromium may need sy
 
 Last recorded verification after the stage redesign: production build and strict type checks passed, 30 Python tests passed, and 3 Playwright tests passed. These are historical results; rerun relevant checks after changes.
 
-Implemented: four games, scoring, host play, AI, request hardening, detached response snapshots, interactive stage testing, fresh relay attempts, modular TypeScript frontend, and bundled asset serving.
+Implemented: four games, scoring, host play, AI, request hardening, detached response snapshots, interactive stage testing, continuous fixed-key relay with overtaking notes, random per-cycle rope keys, modular TypeScript frontend, and bundled asset serving.
+
+Verification after tutorial integration and stage 2/3 rule updates: strict types and production build passed, 33 main Python tests plus 6 landing physics tests passed, and all 5 Playwright tests passed in Chromium. Real multi-device touch latency and audible synchronization still require human testing.
+
+Optional lobby tutorial: can landing at `/demos/landing/index.html`, built by Vite from `demos/landing/index.html` and `landing.js`. Each HTTP server owns a separate `LandingService` (`demos/landing/physics.py`), accessed via `/api/tutorial/landing/{state,start,input}`. It shares one practice flight among tutorial visitors, allows practice restart by any visitor, and never changes main-event teams, stages, or scores. Fuel starts at 50 and the landing zone is 15m wide. The standalone demo launcher remains usable.
 
 The HTTP-independent game service boundary is extracted. Next implement host transfer/recovery, departed-player handling with explicit mid-game rules, and result export. Align changes with the release roadmap.
 

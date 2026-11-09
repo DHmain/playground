@@ -30,12 +30,18 @@ Normal pause/resume and lobby controls remain available. Closing the server disc
 ## Rhythm relay checklist
 
 - Notes move right-to-left through five horizontal lanes and reach the vertical yellow judgment line at the intended input time.
-- With zero AI, all relay patterns belong to you.
-- Hit the indicated arrow or Space when its note center reaches the line.
-- Deliberately miss a note: the next attempt should use a different key sequence and interval sequence.
-- Let a pattern finish: the next pattern should have a fresh sequence and rhythm. Watch the runner above the notes move backward once per missed note; ideal finish is 60 seconds plus penalties.
+- Every player owns one fixed key. With zero AI, only your key is used; with AI teammates, their assigned keys are handled automatically.
+- Hit your assigned arrow when its note center reaches the line. Notes have independent random speeds and may overtake; arrivals never exceed 120 BPM.
+- Deliberately miss a note: exactly one second is added once for that note.
+- Notes continue without pattern breaks until race completion. Watch the runner move backward once per missed note; ideal finish is 60 seconds plus penalties.
 - Pause and resume: notes should remain synchronized with the game clock.
 - Try sound on/off, keyboard, and touch controls; record unclear cues or perceived timing errors.
+
+## Rope key checklist
+
+- Each player sees one assigned arrow/Space key. Every completed judgment cycle changes it to a different random key.
+- A wrong key or early attempt consumes that cycle; correcting it cannot earn a second attempt.
+- Check each player’s label, keyboard input, changing touch button, pause/resume, and AI jumps.
 
 ## Test on a phone
 

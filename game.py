@@ -4,10 +4,11 @@ import random
 import secrets
 import time
 from collections import deque
+from demos.landing.physics import LandingService, ROLES as LANDING_ROLES
 
 DIRECTIONS = {'U': (0, -1), 'D': (0, 1), 'L': (-1, 0), 'R': (1, 0)}
-RELAY_NOTES = 7
-RELAY_STEP = .48
+RELAY_MIN_INTERVAL = .5
+RELAY_MAX_BPM = 120
 RELAY_WINDOW = .16
 ROPE_TARGET = 24
 ROPE_WINDOW = .12
@@ -46,6 +47,8 @@ class Game:
         self.round_id = 0
         self.ai_serial = 0
         self.active_index = 0
+        self.landing = None
+        self.landing_end = None
         self.maze = self.make_maze()
         self.distances = self.distance_map()
 
@@ -155,7 +158,8 @@ class Game:
                     return
         raise ValueError('미로 생성에 실패했습니다. 다시 시작하세요.')
 
-    def begin(self):
+    def begin(self, *, skip_tutorial=False):
+        needs_tutorial = self.phase == 'lobby' and not skip_tutorial
         if self.phase == 'lobby':
             active = [i for i in range(self.team_count) if self.members(i)]
             if not active or any(not 1 <= len(self.members(i)) <= 4 for i in active):
@@ -172,24 +176,12 @@ class Game:
         self.maze_lap = 0
         for t in self.teams:
             t.update(pos=t['maze_start'][:], moved=-100, finish=None, progress=0, feedback='준비', health=GOURD_HP * len(t['members']),
-                     used={}, successes=[], rope_index=0, rope_progress=0, relay_done=0, relay_hits=[], relay_bad=False,
-                     maze_done=0, maze_elapsed=0, maze_turn_done=False, relay_misses=0, relay_judged=[], relay_segments=0, jump_count=0, completed=False, jumps=[-100.0] * len(t['members']), started=None)
-            order = []
-            while len(order) < 8:
-                batch = t['members'][:]
-                random.shuffle(batch)
-                if len(batch) > 1 and order and batch[0] == order[-1]:
-                    batch[0], batch[1] = batch[1], batch[0]
-                order.extend(batch)
-            t['order'] = order[:8]
-            t['turn_start'] = self.start
-            t['patterns'] = []
-            for _ in range(8):
-                pattern = random.choices(list(DIRECTIONS), k=RELAY_NOTES)
-                for i in random.sample(range(RELAY_NOTES), 2):
-                    pattern[i] = 'S'
-                t['patterns'].append(pattern)
-            self.new_relay_attempt(t)
+                     used={}, successes=[], rope_index=0, rope_progress=0,
+                     maze_done=0, maze_elapsed=0, maze_turn_done=False, relay_misses=0, jump_count=0, completed=False, jumps=[-100.0] * len(t['members']), started=None)
+            t['relay_keys'] = list(DIRECTIONS)[:len(t['members'])]
+            t['relay_notes'] = []
+            t['relay_hit_count'] = 0
+            t['rope_keys'] = [random.choice((*DIRECTIONS, 'S')) for _ in t['members']]
         patterns = set()
         for t in self.teams:
             while True:
@@ -200,28 +192,99 @@ class Game:
                     t['rope_pattern'] = pattern
                     break
         self.active_index = 0
+        if needs_tutorial:
+            self.phase, self.stage, self.limit = 'tutorial', -1, 60
+            self.activate_landing()
+            return
         self.activate_team()
 
-    def new_relay_attempt(self, t):
-        previous = t.get('relay_pattern')
-        while True:
-            pattern = random.choices(list(DIRECTIONS), k=RELAY_NOTES)
-            for i in random.sample(range(RELAY_NOTES), 2):
-                pattern[i] = 'S'
-            if pattern != previous:
-                break
-        previous_gaps = t.get('relay_gaps')
-        gaps = [.36, .36, .48, .48, .60, .60]
-        while True:
-            random.shuffle(gaps)
-            if gaps != previous_gaps:
-                break
-        times = [0.0]
-        for gap in gaps:
-            times.append(round(times[-1] + gap, 2))
-        t.update(relay_pattern=pattern, relay_gaps=gaps, note_times=times,
-                 relay_attempt=t.get('relay_attempt', 0) + 1, relay_judged=[])
-        t['patterns'][t['relay_done']] = pattern
+    def landing_roles(self, size):
+        if size == 1:
+            return [list(LANDING_ROLES)]
+        if size == 2:
+            return [['left', 'right'], ['up', 'down']]
+        if size == 3:
+            return [['left'], ['right'], ['up', 'down']]
+        return [[role] for role in LANDING_ROLES]
+
+    def activate_landing(self):
+        self.start = self.now() + 4
+        self.landing = LandingService(clock=self.now)
+        self.landing.last = self.start
+        self.landing_end = None
+        self.teams[self.active_index]['started'] = self.start
+        self.round_id += 1
+
+    def landing_input(self, token, role, pressed, round_id):
+        if self.phase != 'tutorial' or self.paused or round_id != self.round_id:
+            return
+        team = self.assigned(token)
+        if (team is not self.teams[self.active_index] or self.now() < self.start
+                or self.landing.state['status'] not in ('ready', 'playing')):
+            return
+        slot = team['members'].index(token)
+        if role not in self.landing_roles(len(team['members']))[slot]:
+            return
+        if pressed:
+            self.landing.inputs[(token, role)] = self.now()
+        else:
+            self.landing.inputs.pop((token, role), None)
+
+    def tick_landing(self):
+        now = self.now()
+        if now < self.start:
+            return
+        team = self.teams[self.active_index]
+        if self.landing.state['status'] == 'ready':
+            self.landing.state['status'] = 'playing'
+        self.landing.advance()
+        s = self.landing.state
+        if s['status'] == 'playing':
+            # Practice bots only hold the roles they own, using human inputs.
+            target = max(.05, min(.95, (7 + (-3 - s['vy']) * 1.5) / 16))
+            desired = {'left': s['vx'] > max(-5, min(5, -s['x'] * .3)) + .4,
+                       'right': s['vx'] < max(-5, min(5, -s['x'] * .3)) - .4,
+                       'up': s['throttle'] <= target + .02,
+                       'down': s['throttle'] >= target - .02}
+            for slot, token in enumerate(team['members']):
+                if self.players[token].get('ai'):
+                    for role in self.landing_roles(len(team['members']))[slot]:
+                        self.landing_input(token, role, desired[role], self.round_id)
+            return
+        if self.landing_end is None:
+            self.landing_end = now
+            team['tutorial_result'] = dict(s)
+            team['completed'] = True
+        if now - self.landing_end >= 3:
+            if self.active_index + 1 < len(self.teams):
+                self.active_index += 1
+                self.activate_landing()
+            else:
+                self.landing = None
+                self.phase = 'results'
+                self.begin()  # stage -1 -> maze, only after every team played
+
+    def new_relay_stream(self, t):
+        # Arrival slots cap the total judgment rate at 120 BPM. Travel time is
+        # independent, so sorting by spawn time can reverse arrival order.
+        notes, bag = [], []
+        at = 4.2
+        while at + RELAY_WINDOW < self.limit:
+            if not bag:
+                bag = t['relay_keys'][:]
+                random.shuffle(bag)
+            travel = random.uniform(1.2, 4.2)
+            notes.append({'key': bag.pop(), 'spawn': self.start + at - travel,
+                          'at': self.start + at, 'travel': travel, 'status': 'pending'})
+            at += random.choice((RELAY_MIN_INTERVAL, .6, .75, 1.))
+        notes.sort(key=lambda note: note['spawn'])
+        for index, note in enumerate(notes):
+            note['id'] = index
+        t['relay_notes'] = notes
+
+    def next_rope_keys(self, t):
+        t['rope_keys'] = [random.choice([key for key in (*DIRECTIONS, 'S') if key != old])
+                          for old in t['rope_keys']]
 
     def activate_team(self):
         self.start = self.now() + 4
@@ -229,7 +292,8 @@ class Game:
         t['started'] = self.start
         if self.stage == 0:
             t.update(pos=t['maze_start'][:], moved=-100, maze_turn_done=False)
-        t['turn_start'] = self.start
+        if self.stage == 1:
+            self.new_relay_stream(t)
         t['feedback'] = '준비'
         self.round_id += 1
 
@@ -237,24 +301,19 @@ class Game:
         if t['finish'] is not None or now < self.start:
             return
         if self.stage == 1:
-            for i, offset in enumerate(t['note_times']):
-                if now > t['turn_start'] + 3 + offset + RELAY_WINDOW and i not in t['relay_judged']:
-                    t['relay_judged'].append(i)
+            for note in sorted(t['relay_notes'], key=lambda note: note['at']):
+                deadline = note['at'] + RELAY_WINDOW
+                finish = self.start + 60 + t['relay_misses']
+                if deadline >= finish or deadline >= now:
+                    break
+                if note['status'] == 'pending':
+                    note['status'] = 'miss'
                     t['relay_misses'] += 1
-                    t['relay_bad'] = True
-                    t['feedback'] = 'MISS · +1초'
+                    t['feedback'] = 'MISS +1s'
             elapsed = now - self.start
             t['progress'] = min(1, max(0, (elapsed - t['relay_misses']) / 60))
             if elapsed >= 60 + t['relay_misses']:
                 t['finish'] = 60 + t['relay_misses']
-                return
-            end = t['turn_start'] + 3 + t['note_times'][-1] + RELAY_WINDOW + .03
-            if now >= end:
-                t['relay_segments'] += 1
-                t['relay_done'] = (t['relay_done'] + 1) % 8
-                t['relay_hits'], t['relay_bad'] = [], False
-                t['turn_start'] = now + .5
-                self.new_relay_attempt(t)
         if self.stage == 2:
             while now >= self.rope_beat(t['rope_index'], t) + ROPE_WINDOW and t['finish'] is None:
                 hit = len(t['successes'])
@@ -264,6 +323,7 @@ class Game:
                 t['feedback'] = f'{hit}/{len(t["members"])}명 성공 · +{hit / len(t["members"]):.2f}'
                 t['successes'] = []
                 t['rope_index'] += 1
+                self.next_rope_keys(t)
             # Count an accepted final jump even when its judgment window
             # straddles the two-minute cutoff.
             if now >= self.start + 120 and t['successes']:
@@ -273,6 +333,10 @@ class Game:
                 t['successes'] = []
 
     def tick(self):
+        if self.phase == 'tutorial':
+            if not self.paused:
+                self.tick_landing()
+            return
         if self.phase != 'playing' or self.paused:
             return
         now = self.now()
@@ -332,15 +396,15 @@ class Game:
                         self.input(k, key, self.round_id)
                         break
             elif self.stage == 1:
-                runner = t['order'][t['relay_done']]
-                if runner in bots:
-                    for i, key in enumerate(t['patterns'][t['relay_done']]):
-                        if i not in t['relay_hits'] and 0 <= now - (t['turn_start'] + 3 + t['note_times'][i]) <= RELAY_WINDOW:
-                            self.input(runner, key, self.round_id)
+                for note in t['relay_notes']:
+                    if note['status'] == 'pending' and 0 <= now - note['at'] <= RELAY_WINDOW:
+                        owner = t['members'][t['relay_keys'].index(note['key'])]
+                        if owner in bots:
+                            self.input(owner, note['key'], self.round_id)
             elif self.stage == 2:
                 if 0 <= now - self.rope_beat(t['rope_index'], t) <= ROPE_WINDOW:
                     for k in bots:
-                        self.input(k, 'S', self.round_id)
+                        self.input(k, t['rope_keys'][t['members'].index(k)], self.round_id)
             elif self.stage == 3:
                 for k in bots:
                     phase = (now - self.start) / GOURD_PERIOD + t['members'].index(k) * .23
@@ -390,30 +454,29 @@ class Game:
                     t['maze_turn_done'] = True
             t['feedback'] = self.players[token]['name'] + ' ' + key
         elif self.stage == 1:
-            if token != t['order'][t['relay_done']] or key not in (*DIRECTIONS, 'S'):
+            self.settle(t, now)
+            if t['finish'] is not None:
                 return
-            elapsed = now - t['turn_start'] - 3
-            if elapsed < -RELAY_WINDOW:
+            assigned = t['relay_keys'][t['members'].index(token)]
+            if key != assigned:
                 return
-            beat = min(range(RELAY_NOTES), key=lambda i: abs(elapsed - t['note_times'][i]))
-            if 0 <= beat < RELAY_NOTES and abs(elapsed - t['note_times'][beat]) <= RELAY_WINDOW and beat not in t['relay_judged'] and key == t['patterns'][t['relay_done']][beat]:
-                t['relay_hits'].append(beat)
-                t['relay_judged'].append(beat)
-                t['feedback'] = 'HIT ' + str(len(t['relay_hits'])) + f'/{RELAY_NOTES}'
-            else:
-                if abs(elapsed - t['note_times'][beat]) <= RELAY_WINDOW and beat not in t['relay_judged']:
-                    t['relay_judged'].append(beat)
-                    t['relay_misses'] += 1
-                t['relay_bad'] = True
-                t['feedback'] = 'MISS · +1초'
-        elif self.stage == 2 and key == 'S':
+            candidates = [note for note in t['relay_notes']
+                          if note['key'] == assigned and note['status'] == 'pending'
+                          and note['spawn'] <= now and abs(now - note['at']) <= RELAY_WINDOW]
+            if candidates:
+                note = min(candidates, key=lambda note: abs(now - note['at']))
+                note['status'] = 'hit'
+                t['relay_hit_count'] += 1
+                t['feedback'] = 'HIT ' + self.players[token]['name']
+        elif self.stage == 2:
+            self.settle(t, now)
             idx = t['rope_index']
             if t['used'].get(token) == idx:
                 return
             # One attempt per rope cycle, including an early/late miss.
             t['used'][token] = idx
             t['jumps'][t['members'].index(token)] = now
-            if abs(now - self.rope_beat(idx, t)) <= ROPE_WINDOW:
+            if key == t['rope_keys'][t['members'].index(token)] and abs(now - self.rope_beat(idx, t)) <= ROPE_WINDOW:
                 t['successes'].append(token)
                 t['feedback'] = self.players[token]['name'] + ' 점프 성공'
             else:
@@ -463,16 +526,11 @@ class Game:
             p['team'] = 0
             for _ in range(data['bots']):
                 self.act(token, {'action': 'add_ai', 'team': 0})
-            self.begin()
+            self.begin(skip_tutorial=True)
             if data['stage']:
                 self.phase = 'results'
                 self.stage = data['stage'] - 1
                 self.begin()
-            # Let the tester play the first relay turn with AI teammates.
-            if self.stage == 1:
-                order = self.teams[0]['order']
-                index = order.index(token)
-                order[0], order[index] = order[index], order[0]
             return {'ok': True}
         if action == 'host':
             if self.phase != 'lobby' or self.host not in (None, token):
@@ -541,7 +599,6 @@ class Game:
                 t, bot = target
                 p['team'] = t['id']
                 t['members'] = [token if k == bot else k for k in t['members']]
-                t['order'] = [token if k == bot else k for k in t['order']]
                 t['successes'] = [token if k == bot else k for k in t['successes']]
                 if bot in t['used']:
                     t['used'][token] = t['used'].pop(bot)
@@ -563,7 +620,7 @@ class Game:
                     p['team'] = original_team
                     raise
             elif action == 'pause':
-                if self.phase != 'playing':
+                if self.phase not in ('playing', 'tutorial'):
                     raise ValueError('경기 중에만 일시정지할 수 있습니다.')
                 if not self.paused:
                     self.pause_start, self.paused = time.monotonic(), True
@@ -575,9 +632,12 @@ class Game:
                     self.pause_total += time.monotonic() - self.pause_start
                     self.paused = False
                 self.phase, self.stage, self.teams = 'lobby', -1, []
+                self.landing = None
                 self.round_id += 1
         elif action == 'input':
             self.input(token, data.get('key'), data.get('round'))
+        elif action == 'landing_input':
+            self.landing_input(token, data['role'], data['pressed'], data['round'])
         else:
             raise ValueError('알 수 없는 요청입니다.')
         return {'ok': True}
@@ -595,6 +655,7 @@ class Game:
             'add_ai': {'team': int}, 'remove_ai': {'team': int},
             'clear_ai': {}, 'input': {'key': str, 'round': int},
             'test_stage': {'stage': int, 'bots': int},
+            'landing_input': {'role': str, 'pressed': bool, 'round': int},
         }
         if not isinstance(action, str) or action not in fields:
             raise ValueError('알 수 없는 요청입니다.')
@@ -603,6 +664,8 @@ class Game:
                 raise ValueError(f'요청 필드가 잘못되었습니다: {field}')
         if action == 'input' and (data['key'] not in (*DIRECTIONS, 'S') or data['round'] < 0):
             raise ValueError('입력 키 또는 라운드가 잘못되었습니다.')
+        if action == 'landing_input' and (data['role'] not in LANDING_ROLES or data['round'] < 0):
+            raise ValueError('착륙 조작 또는 라운드가 잘못되었습니다.')
 
     def public(self, token):
         self.tick()
@@ -614,21 +677,25 @@ class Game:
                     'ai': bool(p.get('ai')), 'me': k == token}
         out = []
         for t in self.teams:
-            d = {k: t[k] for k in ['id', 'score', 'pos', 'progress', 'finish', 'feedback', 'health', 'relay_done', 'rope_progress', 'history', 'completed', 'jumps', 'started', 'maze_done', 'relay_misses', 'jump_count']}
-            d['status'] = 'done' if t['completed'] else 'active' if self.phase == 'playing' and t is self.teams[self.active_index] else 'waiting'
+            d = {k: t[k] for k in ['id', 'score', 'pos', 'progress', 'finish', 'feedback', 'health', 'rope_progress', 'history', 'completed', 'jumps', 'started', 'maze_done', 'relay_misses', 'jump_count']}
+            d['status'] = 'done' if t['completed'] else 'active' if self.phase in ('playing', 'tutorial') and t is self.teams[self.active_index] else 'waiting'
             d['members'] = [person(k) for k in t['members']]
+            d['tutorial_done'] = 'tutorial_result' in t
             if self.stage == 0:
                 d.update(maze_lap=self.maze_lap + 1, maze=t['maze'], maze_start=t['maze_start'], goal=t['goal'], path_length=t['distances'][tuple(t['maze_start'])])
             if self.phase == 'results':
                 d.update(rank=t['rank'], points=t['points'])
-            if self.stage == 1 and t['relay_done'] < 8:
-                d.update(race_duration=60, runner=self.players[t['order'][t['relay_done']]]['name'], mine=t['order'][t['relay_done']] == token,
-                         turn_start=t['turn_start'], note_times=t['note_times'], attempt=t['relay_attempt'], pattern=t['patterns'][t['relay_done']], hits=t['relay_hits'], bad=t['relay_bad'])
+            if self.stage == 1:
+                n = self.now()
+                d.update(race_duration=60, relay_keys=t['relay_keys'],
+                         relay_hit_count=t['relay_hit_count'],
+                         relay_notes=[dict(note) for note in t['relay_notes']
+                                      if note['spawn'] <= n <= note['at'] + RELAY_WINDOW + 1.2])
             if self.stage == 2:
                 idx = t['rope_index']
                 pattern = t['rope_pattern']
                 d.update(beat=self.rope_beat(idx, t), beat_index=idx,
-                         successes=[t['members'].index(k) for k in t['successes']],
+                         successes=[t['members'].index(k) for k in t['successes']], rope_keys=t['rope_keys'],
                          rope_pattern=pattern, period=pattern[idx % len(pattern)],
                          bpm=round(60 / pattern[idx % len(pattern)]),
                          next_bpm=round(60 / pattern[(idx + 1) % len(pattern)]), change_in=1)
@@ -636,12 +703,14 @@ class Game:
         my = self.assigned(token)
         return {'game_test': self.game_test, 'now': self.now(), 'phase': self.phase, 'stage': self.stage, 'start': self.start, 'limit': self.limit,
                 'round': self.round_id, 'paused': self.paused, 'team_count': self.team_count, 'teams': out,
-                'active_team': self.teams[self.active_index]['id'] if self.phase == 'playing' else None,
+                'active_team': self.teams[self.active_index]['id'] if self.phase in ('playing', 'tutorial') else None,
+                'landing': dict(self.landing.state, active=list({role for (_, role), stamp in self.landing.inputs.items() if self.now() - stamp < .65})) if self.phase == 'tutorial' else None,
+                'landing_roles': self.landing_roles(len(my['members']))[my['members'].index(token)] if self.phase == 'tutorial' and my and token in my['members'] else [],
                 'host': token is not None and token == self.host, 'host_name': self.players[self.host]['name'] if self.host else None,
                 'known': token in self.players, 'my_team': self.players.get(token, {}).get('team'),
                 'my_slot': my['members'].index(token) if my and token in my['members'] else None,
                 'lobby': [[person(k) for k in self.members(i)] for i in range(self.team_count)],
-                'rules': {'relay_notes': RELAY_NOTES, 'relay_step': RELAY_STEP, 'relay_window': RELAY_WINDOW,
+                'rules': {'relay_max_bpm': RELAY_MAX_BPM, 'relay_min_interval': RELAY_MIN_INTERVAL, 'relay_window': RELAY_WINDOW,
                           'rope_target': ROPE_TARGET, 'rope_window': ROPE_WINDOW,
                           'gourd_period': GOURD_PERIOD, 'gourd_hp': GOURD_HP},
                 'waiting': [person(k) for k, p in self.players.items() if p['team'] is None and k != self.host]}

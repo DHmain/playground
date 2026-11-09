@@ -1,5 +1,5 @@
 import type { GameState } from "./types";
-import { targetPosition, ropeClock } from "./timing";
+import { targetPosition, ropeClock, relayNoteX } from "./timing";
 export function animate(S: GameState | null, n: number) {
   if (!S || S.phase !== "playing") return;
   const clock = document.getElementById("clock");
@@ -16,29 +16,28 @@ export function animate(S: GameState | null, n: number) {
       );
       if (runner)
         runner.style.left = `${Math.min(94, Math.max(0, (n - S.start - t.relay_misses) / 60) * 94)}%`;
-      const delta = n - t.turn_start;
+      const delta = n - S.start;
       const el = document.querySelector<HTMLElement>(`[data-relay="${t.id}"]`);
       if (el)
-        el.textContent =
-          delta < 0 ? "준비" : delta < 3 ? String(Math.ceil(3 - delta)) : "GO";
+        el.textContent = delta < 0 ? "준비" : "GO · 담당 키를 계속 확인하세요";
       const width =
         document.querySelector<HTMLElement>(".relay-track")?.clientWidth ?? 0;
-      for (let i = 0; i < t.pattern.length; i++) {
+      for (const data of t.relay_notes) {
         const note = document.querySelector<HTMLElement>(
-          `[data-note="${t.id}-${i}"]`,
+          `[data-note="${t.id}-${data.id}"]`,
         );
         if (note) {
-          const remaining = t.turn_start + 3 + t.note_times[i] - n;
-          // Travel from the right edge to the 20% hit line in 2.5 seconds.
-          note.style.transform = `translateX(${width * 0.2 + (remaining * width * 0.8) / 2.5 - 22}px)`;
+          const remaining = data.at - n;
+          note.style.transform = `translateX(${relayNoteX(data, n, width)}px)`;
           note.classList.toggle(
             "beat",
             Math.abs(remaining) < S.rules.relay_window,
           );
-          note.classList.toggle("hit", t.hits.includes(i));
+          note.classList.toggle("hit", data.status === "hit");
           note.classList.toggle(
             "missed",
-            remaining < -S.rules.relay_window && !t.hits.includes(i),
+            data.status === "miss" ||
+              (remaining < -S.rules.relay_window && data.status !== "hit"),
           );
         }
       }

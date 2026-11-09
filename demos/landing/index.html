@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="ko">
+  <meta charset="utf-8" /><meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+  />
+  <title>깡통 착륙 실험실</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      background: #0a1425;
+      color: #e7efff;
+      font:
+        16px system-ui,
+        sans-serif;
+    }
+    main {
+      max-width: 1080px;
+      margin: auto;
+      padding: 24px;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: center;
+    }
+    h1 {
+      font-size: 25px;
+      margin: 4px 0;
+    }
+    p {
+      color: #a9b9d2;
+      line-height: 1.6;
+    }
+    .tag {
+      font-size: 12px;
+      letter-spacing: 3px;
+      color: #78e7d0;
+    }
+    button,
+    select {
+      font: inherit;
+      border: 1px solid #46617f;
+      border-radius: 12px;
+      background: #1a304b;
+      color: white;
+      padding: 12px;
+      touch-action: none;
+    }
+    button {
+      cursor: pointer;
+    }
+    button:focus-visible,
+    select:focus-visible {
+      outline: 3px solid #ffd37d;
+    }
+    #start {
+      background: #c5f175;
+      color: #15211b;
+      font-weight: bold;
+    }
+    #hud {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+      margin: 18px 0;
+    }
+    .meter {
+      background: #13233a;
+      padding: 12px;
+      border-radius: 12px;
+    }
+    .meter small {
+      display: block;
+      color: #a9b9d2;
+    }
+    .meter b {
+      font-size: 22px;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: auto;
+      background: #0d1b30;
+      border: 1px solid #33485f;
+      border-radius: 16px;
+    }
+    #message {
+      min-height: 32px;
+      color: #ffe0a0;
+      font-weight: bold;
+      margin: 12px 0;
+    }
+    #controls {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin: 14px 0;
+    }
+    .control {
+      min-height: 90px;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .control.active {
+      background: #34796f;
+      border-color: #87ffe1;
+      box-shadow: 0 0 22px #49e3b733;
+    }
+    .control span {
+      display: block;
+      font-size: 12px;
+      color: #bfd0e7;
+      margin-top: 6px;
+    }
+    .hint {
+      font-size: 14px;
+    }
+    label {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    footer {
+      border-top: 1px solid #30415a;
+      margin-top: 24px;
+      padding-top: 12px;
+      font-size: 13px;
+      color: #9aaec9;
+    }
+    @media (max-width: 600px) {
+      main {
+        padding: 12px;
+      }
+      header {
+        align-items: flex-start;
+      }
+      h1 {
+        font-size: 21px;
+      }
+      #hud {
+        grid-template-columns: repeat(3, 1fr);
+      }
+      .meter {
+        padding: 8px;
+      }
+      .meter b {
+        font-size: 18px;
+      }
+      #controls {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      canvas {
+        aspect-ratio: 1/1;
+        object-fit: contain;
+      }
+      .hint {
+        font-size: 12px;
+      }
+    }
+  </style>
+  <main>
+    <header>
+      <div>
+        <div class="tag">STANDALONE FLIGHT DEMO</div>
+        <h1>깡통 착륙 실험실</h1>
+      </div>
+      <button id="start">시작 / 다시 도전</button>
+    </header>
+    <p>
+      네 사람이 하나의 깡통을 착륙시키세요. 자동 자세·고도 보정 없이, 바람을
+      이겨내고 중앙을 노립니다.
+    </p>
+    <label
+      >내 역할
+      <select id="role">
+        <option value="all">혼자 연습 · 모든 조작</option>
+        <option value="left">1번 · 하단 왼쪽 분사기</option>
+        <option value="right">2번 · 하단 오른쪽 분사기</option>
+        <option value="up">3번 · 스로틀 U</option>
+        <option value="down">4번 · 스로틀 D</option>
+        <option value="watch">관전</option>
+      </select></label
+    >
+    <div id="hud">
+      <div class="meter"><small>공유 연료</small><b id="fuel">50%</b></div>
+      <div class="meter"><small>메인 출력</small><b id="throttle">0%</b></div>
+      <div class="meter"><small>하강 속도</small><b id="speed">0</b></div>
+      <div class="meter"><small>바람</small><b id="wind">—</b></div>
+      <div class="meter"><small>남은 시간</small><b id="time">60초</b></div>
+    </div>
+    <canvas
+      id="scene"
+      width="1000"
+      height="550"
+      aria-label="착륙선의 위치와 착륙장"
+      role="img"
+    ></canvas>
+    <div id="message" role="status">
+      시작을 누르면 즉시 낙하합니다. U 담당은 바로 출력을 올리세요.
+    </div>
+    <div id="controls">
+      <button class="control" data-role="left">
+        ← 하단 왼쪽<span>A / ← · 왼쪽으로 밀기</span></button
+      ><button class="control" data-role="right">
+        하단 오른쪽 →<span>L / → · 오른쪽으로 밀기</span></button
+      ><button class="control" data-role="up">
+        U · 출력 증가<span>U / ↑ · 누르고 있기</span></button
+      ><button class="control" data-role="down">
+        D · 출력 감소<span>D / ↓ · 누르고 있기</span>
+      </button>
+    </div>
+    <p class="hint">
+      U+D: 현재 출력 유지 · 둘 다 놓기: 즉시 출력 0 · 재점화는 U로 낮은
+      출력부터.<br />안전 착륙: 수직 5 m/s, 수평 3 m/s 이하로 착륙장에 접촉 후
+      2초 유지. 전복 없음. 중앙 100점, 가장자리 0점.
+    </p>
+    <footer>
+      기존 FOURWARD와 독립된 실험용 데모 · 같은 서버 주소에 접속해 서로 다른
+      역할을 선택하세요. 시작 버튼은 모든 접속자가 사용할 수 있습니다.
+    </footer>
+  </main>
+  <script type="module" src="./landing.js"></script>
+</html>

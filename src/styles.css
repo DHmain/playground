@@ -49,6 +49,34 @@ button:disabled {
   color: #fffaf0;
   border-color: var(--lime);
 }
+.landing-scene {
+  width: 100%;
+  max-height: 55vh;
+  display: block;
+  margin: 16px 0;
+  border-radius: 12px;
+  background: #101e33;
+}
+.landing-hud {
+  margin-top: 14px;
+  font-variant-numeric: tabular-nums;
+}
+[data-landing-role] {
+  touch-action: none;
+  user-select: none;
+  min-width: 130px;
+}
+a.primary {
+  display: inline-block;
+  padding: 10px 16px;
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: 700;
+}
+a:focus-visible {
+  outline: 3px solid var(--lime);
+  outline-offset: 3px;
+}
 input,
 select {
   border: 1px solid var(--line);
@@ -685,7 +713,7 @@ header::after {
 }
 .relay-track {
   position: relative;
-  height: 250px;
+  height: 200px;
   overflow: hidden;
   background: #302d36;
   border-radius: 12px;
@@ -696,7 +724,7 @@ header::after {
   position: absolute;
   left: 0;
   right: 0;
-  height: 20%;
+  height: 25%;
   border-bottom: 1px solid #ffffff25;
   padding: 14px 6px;
   font-size: 12px;

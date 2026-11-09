@@ -1,4 +1,7 @@
-import type { Team } from "./types";
+import type { Team, RelayNote } from "./types";
+export function relayNoteX(note: RelayNote, now: number, width: number) {
+  return width * 0.2 + ((note.at - now) * width * 0.8) / note.travel - 22;
+}
 export function targetPosition(phase: number) {
   const p = ((phase % 1) + 1) % 1;
   return p < 0.45
