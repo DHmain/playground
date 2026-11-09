@@ -4,7 +4,7 @@ import { app, element, e, arrows, toast, mount as patchMount } from "./ui";
 import { maze, relay, rope, gourd } from "./games";
 import { animate } from "./animation";
 import { ropeClock } from "./timing";
-import { beep } from "./audio";
+import { beep, updateAudio } from "./audio";
 import { fetchState, postAction } from "./transport";
 
 ("use strict");
@@ -241,6 +241,7 @@ let lastSound = "";
 function frame() {
   requestAnimationFrame(frame);
   animate(S, serverNow());
+  updateAudio(S);
   if (!S || S.paused || S.phase !== "playing" || serverNow() < S.start) return;
   const n = serverNow(),
     t = S.teams.find((t) => t.id === S.active_team);
@@ -248,9 +249,10 @@ function frame() {
   let cue = null;
   if (S.stage === 2) {
     const timing = ropeClock(t, n);
-    if (Math.abs(n - timing.beat) < 0.06) cue = "rope" + timing.index;
+    if (Math.abs(n - timing.beat) < 0.06)
+      cue = `rope-${S.round}-${t.id}-` + timing.index;
     else if (timing.index > 0 && Math.abs(n - timing.previous) < 0.06)
-      cue = "rope" + (timing.index - 1);
+      cue = `rope-${S.round}-${t.id}-` + (timing.index - 1);
   }
   if (S.stage === 1) {
     const b = t.note_times.findIndex(

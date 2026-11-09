@@ -711,10 +711,13 @@ header::after {
 .relay-note {
   position: absolute;
   left: 0;
-  width: 48px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: 2px solid #fff2cc;
+  box-shadow: 0 2px 5px #0008;
   text-align: center;
-  line-height: 32px;
   background: #f2bd66;
   color: #302d36;
   border-radius: 7px;
@@ -746,6 +749,7 @@ header::after {
   font-size: 32px;
   left: 0;
   transition: left 0.12s linear;
+  transform: scaleX(-1);
 }
 .runner-finish {
   position: absolute;
@@ -760,4 +764,32 @@ header::after {
 
 .maze-start {
   background: #78b6d0;
+}
+
+.note-arrow {
+  width: 36px;
+  height: 36px;
+  fill: currentColor;
+}
+.note-space {
+  font-size: 10px;
+  font-weight: 900;
+}
+.rope-impact {
+  fill: #ffe083;
+  stroke: #a44c1d;
+  stroke-width: 3;
+  pointer-events: none;
+}
+.rope-impact path {
+  fill: none;
+  stroke: #e78326;
+  stroke-width: 5;
+  stroke-linecap: round;
+}
+.rope-impact text {
+  fill: #82411c;
+  stroke: none;
+  font-size: 20px;
+  font-weight: 900;
 }

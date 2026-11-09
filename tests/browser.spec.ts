@@ -38,6 +38,15 @@ test("built client: all stages, inputs, pause, AI, reconnect, mobile, normal edi
       await expect(page.locator(".relay-note")).toHaveCount(7);
       await expect(page.locator(".runner-race")).toBeVisible();
       await expect(page.locator(".relay-runner")).toBeVisible();
+      await expect(page.locator(".relay-note .note-arrow")).toHaveCount(5);
+      await expect(page.locator(".relay-note .note-space")).toHaveCount(2);
+      expect(
+        await page
+          .locator(".relay-runner")
+          .evaluate((el) => getComputedStyle(el).transform),
+      ).toBe("matrix(-1, 0, 0, 1, 0, 0)");
+      const square = await page.locator(".relay-note").first().boundingBox();
+      expect(square!.width).toBe(square!.height);
       const note = await page.locator(".relay-note").first().elementHandle();
       const before = await note!.boundingBox();
       await page.waitForTimeout(300);
@@ -54,6 +63,13 @@ test("built client: all stages, inputs, pause, AI, reconnect, mobile, normal edi
       expect(fresh.note_times).not.toEqual(old.note_times);
     }
     if (stage === 2) {
+      await expect
+        .poll(
+          async () =>
+            Number(await page.locator(".rope-impact").getAttribute("opacity")),
+          { intervals: [20], timeout: 3000 },
+        )
+        .toBeGreaterThan(0);
       const current = (await state()).teams[0];
       expect(current.rope_pattern.every((gap: number) => 60 / gap <= 100)).toBe(
         true,
@@ -74,6 +90,15 @@ test("built client: all stages, inputs, pause, AI, reconnect, mobile, normal edi
   await expect(
     page.getByRole("button", { name: "박자 소리 끄기" }),
   ).toBeVisible();
+  const musicResponse = page.waitForResponse((response) =>
+    response.url().endsWith("/audio/happy-adventure.mp3"),
+  );
+  await page.getByRole("button", { name: "BGM 켜기", exact: true }).click();
+  expect((await musicResponse).ok()).toBe(true);
+  await expect(
+    page.getByRole("button", { name: "BGM 끄기", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "BGM 끄기", exact: true }).click();
   await page.getByLabel("AI 팀원").selectOption("3");
   await page.getByRole("button", { name: games[1], exact: true }).click();
   await expect

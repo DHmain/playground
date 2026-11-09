@@ -30,7 +30,7 @@ export function animate(S: GameState | null, n: number) {
         if (note) {
           const remaining = t.turn_start + 3 + t.note_times[i] - n;
           // Travel from the right edge to the 20% hit line in 2.5 seconds.
-          note.style.transform = `translateX(${width * 0.2 + (remaining * width * 0.8) / 2.5 - 24}px)`;
+          note.style.transform = `translateX(${width * 0.2 + (remaining * width * 0.8) / 2.5 - 22}px)`;
           note.classList.toggle(
             "beat",
             Math.abs(remaining) < S.rules.relay_window,
@@ -49,7 +49,7 @@ export function animate(S: GameState | null, n: number) {
       document
         .querySelectorAll("[data-rope-note]")
         .forEach((el, i) => el.classList.toggle("on", i === timing.index % 8));
-      const y = n < S.start ? 155 : 155 + 60 * Math.cos(angle);
+      const y = n < S.start ? 155 : 155 + 70 * Math.cos(angle);
       const path = `M55 155 Q300 ${2 * y - 155} 545 155`;
       for (const side of ["back", "front"]) {
         const el = document.querySelector<HTMLElement>(
@@ -60,6 +60,16 @@ export function animate(S: GameState | null, n: number) {
           el.style.visibility =
             (side === "front") === y >= 155 ? "visible" : "hidden";
         }
+      }
+      // Phase zero is the floor contact, matching the server's beat boundaries.
+      const impact = document.querySelector<SVGElement>(
+        `[data-rope-impact="${t.id}"]`,
+      );
+      if (impact) {
+        const age = n - timing.previous;
+        const strength =
+          n >= S.start && timing.index > 0 && age < 0.18 ? 1 - age / 0.18 : 0;
+        impact.setAttribute("opacity", String(strength));
       }
       t.members.forEach((p, i) => {
         const el = document.querySelector<HTMLElement>(
